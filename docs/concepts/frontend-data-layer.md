@@ -78,7 +78,7 @@ Domain writes go through `afterWrite(write, ...prefixes)` (`lib/afterWrite.ts`):
 
 ### Route registry
 
-`routes/registry.ts` defines the authenticated shell routes. Each entry owns its lazy page, optional access requirement, critical query factories, dependent queries, and heavy-read policy. The page and its prefetch must use the same factory and key.
+`routes/registry.ts` defines the authenticated shell routes. Each entry owns its lazy page, optional access requirement, critical query factories, dependent queries, heavy-read policy, and likely next destinations. The page and its prefetch must use the same factory and key.
 
 `lib/navIntent.ts` delegates hover, focus, pointer-down, and touch handling. Hover/focus waits for a cancellable 200 ms dwell; pressing warms immediately. Repeats are deduplicated by query freshness and in-flight sharing, not by a per-link cooldown. External, disabled, download, and opted-out links are ignored. Heavy routes (the graph, an intent whose cached detail exceeds 512 KiB) load code on hover and data only when navigation is imminent. Route chunks use `lazyWithPreload` so render and warming share the same import.
 
@@ -94,6 +94,10 @@ Domain writes go through `afterWrite(write, ...prefixes)` (`lib/afterWrite.ts`):
 
 There is no parallel speculative data store, learned-byte estimator, per-link cooldown, hit/waste registry, or token-bucket API. Prefetched data uses the same native cache and inactive memory cap as other reads.
 
+### Idle next page
+
+`useIdleNext` waits for the current route's critical reads, then warms its likely next destinations and the rows the sidebar offers.
+
 The intent detail query starts its compiled view as soon as a detail a page is reading arrives; a speculative detail leaves the compile to the route prefetch. The provider reads the shared detail, compiled, and workflow-detail (`select` phases) queries; it keeps only the transcript and artifact-body merge state of its own.
 
 Never prefetch capability probes (they are cached foreground reads), composer execution previews (cached, foreground only), OAuth callbacks, verification endpoints, writes, realtime tokens, output transcripts, artifact content pages, or the slow on-demand space-usage aggregate. Graph and audit reads are not idle-warming candidates.
@@ -104,9 +108,11 @@ Use `refetchInterval` on the query that owns the data. Leave `refetchIntervalInB
 
 `useVisiblePoll` is reserved for non-query work such as catching up and merging independently paginated visible transcript panes. Do not introduce another timer for an ordinary query refresh.
 
-## Reading without retaining
+## Intent status from the cache
 
-`useQueryData(key)` uses `useSyncExternalStore`, a `QueryCache` subscription, and `getQueryData`. It does not create a query or an observer, fetch data, or extend retention. Use it for small status views that should update when data arrives without keeping it in memory.
+`useQueryData(key)` uses `useSyncExternalStore`, a `QueryCache` subscription, and `getQueryData`. It does not create a query or an observer, fetch data, or extend retention. Status pills update when a detail arrives and fall back to their list summary when it is evicted.
+
+`useIntentStatus` uses cached evidence only when it is at least as recent as the list summary. The sidebar therefore shows the intent page's status without retaining every visited detail or making row-level requests.
 
 ## Checklist for changes
 
