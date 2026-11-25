@@ -73,6 +73,7 @@ Domain writes go through `afterWrite(write, ...prefixes)` (`lib/afterWrite.ts`):
 - Workflow writes invalidate the workflow prefix and workflow list. The prefix covers compiled views.
 - Agent settings and credential writes invalidate the affected settings and credential views.
 - Successful intent lifecycle writes invalidate the space's intent lists, including status-filtered lists.
+- Deleting an intent removes its entity prefix.
 
 `afterWrite` refreshes in `finally`: a failed response can still follow an applied write. Intent lifecycle writes refresh only on success. Keep this decision in the service so every caller uses the same policy.
 
