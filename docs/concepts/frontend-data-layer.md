@@ -10,6 +10,7 @@ Application WebSocket events and Yjs document sync remain separate transports. A
 
 Use the factories in `lib/queryKeys.ts` (`qk`) for hierarchical, request-shaped keys:
 
+- Platform lists have roots such as `['projects']` and `['agents', 'settings']`.
 - Space reads live under `['project', projectId, …]`.
 - Intent detail lives under `['intent', projectId, intentId, …]`.
 - Workflow detail and compilation live under `['workflow', workflowId, …]`.
@@ -26,7 +27,7 @@ await queryClient.fetchQuery(intentDetailQuery(projectId, intentId));
 await queryClient.prefetchQuery(intentDetailQuery(projectId, intentId));
 ```
 
-`lib/authoringQueries.ts` and `lib/intentEntry.ts` own the shared descriptors. Each query function passes TanStack's `signal` to the transport. Keep HTTP calls in the domain service or authenticated API client; do not call a cache-backed service recursively from its own query function.
+`lib/settingsQueries.ts`, `lib/authoringQueries.ts`, and `lib/intentEntry.ts` own the shared descriptors. Each query function passes TanStack's `signal` to the transport. Keep HTTP calls in the domain service or authenticated API client; do not call a cache-backed service recursively from its own query function.
 
 Use native result fields: `data`, `error`, `isPending`, `isFetching`, `isPlaceholderData`, `dataUpdatedAt`, and `refetch`.
 
@@ -70,6 +71,7 @@ The existing document-reload boundary remains: signing in after a session ended,
 Domain writes go through `afterWrite(write, ...prefixes)` (`lib/afterWrite.ts`): once the write settles it invalidates each prefix and supersedes reads that started before it (cancelled and restarted, so their waiters get post-write data). Active queries refetch; inactive queries remain stale until needed.
 
 - Workflow writes invalidate the workflow prefix and workflow list. The prefix covers compiled views.
+- Agent settings and credential writes invalidate the affected settings and credential views.
 - Successful intent lifecycle writes invalidate the space's intent lists, including status-filtered lists.
 
 `afterWrite` refreshes in `finally`: a failed response can still follow an applied write. Intent lifecycle writes refresh only on success. Keep this decision in the service so every caller uses the same policy.
