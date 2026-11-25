@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@/test/query';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { DeliveryStatus } from './DeliveryStatus';
@@ -40,9 +40,12 @@ it('shows the affected repository and checks delivery before retrying only publi
   render(<DeliveryStatus {...props} />);
   const user = userEvent.setup();
   expect(screen.getByText('Provider unavailable')).toBeInTheDocument();
-  expect(screen.getByText(/does not regenerate code/)).toBeInTheDocument();
+  // The Retry explanation only appears once a Retry button is actually offered.
+  expect(screen.queryByText(/does not regenerate code/)).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Check delivery' }));
-  await user.click(await screen.findByRole('button', { name: 'Retry delivery' }));
+  const retryButton = await screen.findByRole('button', { name: 'Retry delivery' });
+  expect(screen.getByText(/does not regenerate code/)).toBeInTheDocument();
+  await user.click(retryButton);
   await waitFor(() =>
     expect(intentsService.retryDelivery).toHaveBeenCalledWith('project', 'intent', 'checked-head'),
   );
@@ -135,4 +138,50 @@ it('shows an unconfirmed pull request as needing review without offering a retry
   await user.click(screen.getByRole('button', { name: 'Check delivery' }));
   await waitFor(() => expect(intentsService.previewDelivery).toHaveBeenCalled());
   expect(screen.queryByRole('button', { name: 'Retry delivery' })).not.toBeInTheDocument();
+});
+it('recognises a recorded pull request instead of saying delivery is unverified', () => {
+  render(
+    <DeliveryStatus
+      {...props}
+      delivery={undefined}
+      pullRequests={[
+        {
+          id: 'pr-1',
+          repository: 'eipasteur/retail-store-cart',
+          prUrl: 'https://github.com/eipasteur/retail-store-cart/pull/57',
+          prNumber: '57',
+          branch: 'aidlc/cf2-v2618-express',
+          baseBranch: null,
+          createdAt: '2026-10-01T10:56:00Z',
+        },
+      ]}
+    />,
+  );
+  expect(screen.queryByText(/not yet verified/)).not.toBeInTheDocument();
+  expect(screen.getByText('1 pull request opened')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'View pull request #57' })).toHaveAttribute(
+    'href',
+    'https://github.com/eipasteur/retail-store-cart/pull/57',
+  );
+  expect(screen.getByText('retail-store-cart')).toBeInTheDocument();
+  expect(screen.getByText(/aidlc\/cf2-v2618-express/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Check delivery' })).toBeInTheDocument();
+});
+it('uses no text below 11 px and no native details', () => {
+  const { container } = render(<DeliveryStatus {...props} />);
+  expect(container.innerHTML).not.toMatch(/text-\[(?:[0-9]|10)px\]/);
+  expect(container.querySelector('details')).toBeNull();
+});
+it('does not describe a Retry button that a non-retryable check does not offer', async () => {
+  vi.mocked(intentsService.previewDelivery).mockResolvedValue({
+    ...preview,
+    retryable: false,
+    canRecord: false,
+  });
+  render(<DeliveryStatus {...props} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Check delivery' }));
+  await waitFor(() => expect(intentsService.previewDelivery).toHaveBeenCalled());
+  expect(screen.queryByRole('button', { name: /Retry/ })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Retry publishes/)).not.toBeInTheDocument();
 });
