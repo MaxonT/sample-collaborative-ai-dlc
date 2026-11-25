@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import type { CompiledWorkflow } from '@/services/workflows';
 import type { StageState } from '@/services/intents';
+import { displayStageName, humanizeSlug } from '@/lib/displayNames';
+import { getStatus, type StatusTone } from '@/lib/statusModel';
 import { cn } from '@/lib/utils';
 import {
   computeUnitLaneLayout,
@@ -27,32 +29,29 @@ export interface UnitLaneGraphProps {
 
 const PHASE_PALETTE = ['#94a3b8', '#6366f1', '#f59e0b', '#10b981', '#ec4899'] as const;
 
-const STATUS_NODE_STYLE: Record<
-  StageState,
-  { fill: string; textFill: string; stroke?: string; strokeDash?: string; pulse?: boolean }
-> = {
-  SUCCEEDED: { fill: 'var(--agent-success)', textFill: '#ffffff' },
-  FAILED: { fill: 'var(--agent-error)', textFill: '#ffffff' },
-  RUNNING: { fill: 'var(--agent-running)', textFill: '#ffffff', pulse: true },
-  WAITING_FOR_HUMAN: { fill: 'var(--agent-waiting)', textFill: '#1c1917' },
-  PENDING: { fill: 'var(--muted)', textFill: 'var(--muted-foreground)' },
-  SKIPPED: {
-    fill: 'var(--muted)',
-    textFill: 'var(--muted-foreground)',
-    stroke: 'var(--muted-foreground)',
-    strokeDash: '4 3',
-  },
+// Solid SVG fills per registry tone (CSS tokens from index.css). The label/tone
+// itself comes from statusModel so the graph never carries its own status map.
+const TONE_FILL: Record<StatusTone, { fill: string; text: string }> = {
+  neutral: { fill: 'var(--muted)', text: 'var(--muted-foreground)' },
+  info: { fill: 'var(--agent-idle)', text: '#ffffff' },
+  running: { fill: 'var(--agent-running)', text: '#ffffff' },
+  waiting: { fill: 'var(--agent-waiting)', text: '#1c1917' },
+  success: { fill: 'var(--agent-success)', text: '#ffffff' },
+  danger: { fill: 'var(--agent-error)', text: '#ffffff' },
+  warning: { fill: 'var(--warning)', text: '#1c1917' },
 };
 
-const UNIT_STATE_FILL: Record<string, { fill: string; text: string; pulse?: boolean }> = {
-  PENDING: { fill: 'var(--muted)', text: 'var(--muted-foreground)' },
-  READY: { fill: 'var(--muted)', text: 'var(--muted-foreground)' },
-  RUNNING: { fill: 'var(--agent-running)', text: '#ffffff', pulse: true },
-  MERGING: { fill: 'var(--phase-construction)', text: '#1c1917' },
-  MERGED: { fill: 'var(--agent-success)', text: '#ffffff' },
-  FAILED: { fill: 'var(--agent-error)', text: '#ffffff' },
-  BLOCKED: { fill: '#f59e0b', text: '#1c1917' },
-};
+function stageNodeStyle(state: StageState) {
+  const entry = getStatus('stage', state);
+  const skipped = state === 'SKIPPED';
+  return {
+    ...TONE_FILL[entry.tone],
+    tone: entry.tone,
+    pulse: Boolean(entry.live),
+    stroke: skipped ? 'var(--muted-foreground)' : undefined,
+    strokeDash: skipped ? '4 3' : undefined,
+  };
+}
 
 const EDGE_STYLES: Record<string, { width: number; dash: string; color: string }> = {
   data: { width: 1.5, dash: '4 3', color: 'var(--border)' },
@@ -123,7 +122,7 @@ export function UnitLaneGraph({
               y={16}
               textAnchor="middle"
               fill="var(--muted-foreground)"
-              className="text-[11px] font-medium"
+              className="text-2xs font-medium"
             >
               {name}
             </text>
@@ -155,29 +154,33 @@ export function UnitLaneGraph({
 
         {nodeList.map((node) => {
           if (node.kind === 'unit') {
-            const us = node.unitState ? UNIT_STATE_FILL[node.unitState] : undefined;
+            const unitEntry = node.unitState ? getStatus('unit', node.unitState) : null;
+            const us = unitEntry ? TONE_FILL[unitEntry.tone] : null;
+            const name = humanizeSlug(node.slug ?? '');
             return (
               <g
                 key={node.key}
                 transform={`translate(${node.x},${node.y})`}
-                className={cn(us?.pulse && 'animate-pulse-subtle')}
+                className={cn(unitEntry?.live && 'motion-safe:animate-pulse-subtle')}
                 data-unit-state={node.unitState ?? undefined}
+                data-tone={unitEntry?.tone}
               >
+                <title>{unitEntry ? `${name} · ${unitEntry.label}` : name}</title>
                 <rect
                   width={UNIT_NODE_W}
                   height={NODE_H}
                   rx={6}
                   fill={us?.fill ?? 'var(--primary)'}
-                  opacity={0.5}
+                  opacity={0.85}
                 />
                 <text
                   x={UNIT_NODE_W / 2}
                   y={NODE_H / 2 + 4}
                   textAnchor="middle"
                   fill={us?.text ?? 'var(--primary-foreground)'}
-                  className="text-[12px] font-semibold font-mono"
+                  className="text-xs font-semibold"
                 >
-                  {truncate(node.slug ?? '', 16)}
+                  {truncate(name, 20)}
                 </text>
               </g>
             );
@@ -189,9 +192,9 @@ export function UnitLaneGraph({
             node.kind === 'unitStage'
               ? node.state
               : (stageStatus?.[node.stageId ?? ''] ?? undefined);
-          const style = state ? STATUS_NODE_STYLE[state] : undefined;
+          const style = state ? stageNodeStyle(state) : undefined;
           const fill = style ? style.fill : (colorByPath[node.phasePath] ?? '#94a3b8');
-          const textFill = style ? style.textFill : '#ffffff';
+          const textFill = style ? style.text : '#ffffff';
           const opacity = state === 'SKIPPED' ? 0.55 : 1;
           const clickable = !!onStageClick && (node.kind === 'stage' || node.rowKey != null);
           const clickKey = node.kind === 'unitStage' ? node.rowKey : undefined;
@@ -200,8 +203,9 @@ export function UnitLaneGraph({
               key={node.key}
               transform={`translate(${node.x},${node.y})`}
               opacity={opacity}
-              className={cn(style?.pulse && 'animate-pulse-subtle')}
+              className={cn(style?.pulse && 'motion-safe:animate-pulse-subtle')}
               data-stage-status={state ?? undefined}
+              data-tone={style?.tone}
               {...(clickable
                 ? {
                     role: 'button',
@@ -226,8 +230,13 @@ export function UnitLaneGraph({
                 strokeWidth={style?.stroke ? 1.5 : 0}
                 strokeDasharray={style?.strokeDash ?? undefined}
               />
+              <title>
+                {state
+                  ? `${displayStageName(node.stageId ?? '')} · ${getStatus('stage', state).label}`
+                  : displayStageName(node.stageId ?? '')}
+              </title>
               <text x={10} y={NODE_H / 2 + 4} fill={textFill} className="text-[13px]">
-                {truncate(node.stageId ?? '', 30)}
+                {truncate(displayStageName(node.stageId ?? ''), 30)}
               </text>
             </g>
           );
