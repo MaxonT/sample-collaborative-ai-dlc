@@ -20,13 +20,13 @@ export function GitOAuthCallback({ trackerProviderId }: { trackerProviderId: str
     if (!result?.success) return;
     const timer = setTimeout(
       () =>
-        navigate(resume ?? `/dashboard?reopenCreateSpace=1&gitProvider=${provider}`, {
+        navigate(resume ?? `${back}?reopenCreateSpace=1&gitProvider=${provider}`, {
           replace: true,
         }),
       1500,
     );
     return () => clearTimeout(timer);
-  }, [navigate, provider, resume, result?.success]);
+  }, [navigate, provider, back, resume, result?.success]);
   return (
     <OAuthCallbackShell
       status={!result ? 'loading' : result.success ? 'success' : 'error'}
